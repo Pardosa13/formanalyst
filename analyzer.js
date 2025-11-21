@@ -1,161 +1,252 @@
-#!/usr/bin/env node
+// Add event listener for analyze button
+document.getElementById('analyzeButton').addEventListener('click', function() {
+    const fileInput = document.getElementById('fileInput');
+    const files = fileInput.files;
+    
+    // Capture track conditions for each file
+    const trackConditions = [];
+    for (let i = 0; i < files.length; i++) {
+        const dropdown = document.getElementById(`trackCondition_${i}`);
+        if (dropdown) {
+            trackConditions.push(dropdown.value);
+        } else {
+            trackConditions.push('good'); // default fallback
+        }
+    }
+    
+    const isAdvanced = document.getElementById('advancedToggle').checked;
+    const troubleshooting = document.getElementById('troubleshootingToggle').checked;
 
-/**
- * The Form Analyst - Racing Analysis Algorithm
- * Extracted from Partington Probability Engine v27
- */
+    if (files.length > 0) {
+        let allData = [];
+        let filesProcessed = 0;
+        
+        for (let i = 0; i < files.length; i++) {
+            const fileName = files[i].name;
+            const trackCondition = trackConditions[i];
+            
+            Papa.parse(files[i], {
+                delimiter: ",",
+                header: true,
+                complete: function(results) {
+                    const data = results.data;
+                    const analysisResults = [];
 
-const Papa = require('papaparse');
+                    // Get the header row for comparison
+                    const headerRow = results.meta.fields;
 
-// Read input from stdin
-let inputData = '';
-process.stdin.on('data', chunk => {
-    inputData += chunk;
-});
+                    // Filter out rows that have any undefined values or are repeats of the header row
+                    var filteredData = data.filter(row => {
+                        const isHeaderRow = Object.values(row).every((value, index) => value === headerRow[index]);
+                        return !isHeaderRow;
+                    });
 
-process.stdin.on('end', () => {
-    try {
-        const input = JSON.parse(inputData);
-        const results = analyzeCSV(input.csv_data, input.track_condition, input.is_advanced);
-        console.log(JSON.stringify(results));
-        process.exit(0);
-    } catch (error) {
-        console.error(JSON.stringify({ error: error.message, stack: error.stack }));
-        process.exit(1);
+                    // Calculate score for horses using (1) multi-row analysis and (2) single row analysis
+                    const filteredDataSectional = getLowestSectionalsByRace(filteredData);
+                    const averageFormPrices = calculateAverageFormPrices(filteredData);
+
+                    // Make filteredData only the latest entry for each horse
+                    const getUniqueHorsesOnly = (data) => {
+                        const latestByComposite = new Map();
+                        
+                        data.forEach(entry => {
+                            const compositeKey = `${entry['horse name']}-${entry['race number']}`;
+                            const currentDate = entry['form meeting date'];
+                            
+                            if (!latestByComposite.has(compositeKey) || 
+                                currentDate > new Date(latestByComposite.get(compositeKey)['form meeting date'])) {
+                                latestByComposite.set(compositeKey, entry);
+                            }
+                        });
+                        
+                        return Array.from(latestByComposite.values());
+                    };
+
+                    filteredData = getUniqueHorsesOnly(filteredData);
+
+                    // Process each horse entry
+                    filteredData.forEach((horse, index) => {
+                        if (horse['meeting date'] === undefined || !horse['horse name']) return;
+                        
+                        const compositeKey = `${horse['horse name']}-${horse['race number']}`;
+                        const avgFormPrice = averageFormPrices[compositeKey];
+
+                        var [score, notes] = calculateScore(horse, trackCondition, troubleshooting, avgFormPrice);
+
+                        const raceNumber = horse['race number'];
+                        const horseName = horse['horse name'];
+
+                        const matchingHorse = filteredDataSectional.find(horse => 
+                            parseInt(horse.race) === parseInt(raceNumber) && 
+                            horse.name.toLowerCase().trim() === horseName.toLowerCase().trim()
+                        );
+
+                        if (matchingHorse) {
+                            score += matchingHorse.sectionalScore;
+                            notes += matchingHorse.sectionalNote;
+                            
+                            if (matchingHorse.hasAverage1st && matchingHorse.hasLastStart1st) {
+                                const [classScore, classNotes] = compareClasses(
+                                    horse['class restrictions'], 
+                                    horse['form class'],
+                                    horse['race prizemoney'],
+                                    horse['prizemoney']
+                                );
+                                if (classScore > 0) {
+                                    score += 15;
+                                    notes += '+15.0 : COMBO BONUS - Fastest sectional + dropping in class\n';
+                                    
+                                    if (troubleshooting) {
+                                        console.log(`Combo bonus awarded to ${horseName}: Fastest sectional + dropping in class (class score: ${classScore})`);
+                                    }
+                                }
+                            }
+                        } else {
+                            console.log(`No matching horse found for ${horseName} in race ${raceNumber}`);
+                        }
+
+                        analysisResults.push({ horse, score, notes });
+                    });
+
+                    var uniqueResults = Array.from(new Map(analysisResults.map(item => [item.horse['horse name'], item])).values());
+                    uniqueResults = calculateTrueOdds(uniqueResults, priorStrength=1, troubleshooting);
+                    uniqueResults.sort((a,b)=> (a.horse['race number'] - b.horse['race number'] || b.score - a.score));
+
+                    // Create or get meeting
+                    let currentMeeting = createMeeting(fileName);
+                    if (!currentMeeting) return;
+
+                    currentMeeting.races = filteredData;
+                    currentMeeting.analysisResults = uniqueResults;
+
+                    // Render results for active meeting
+                    renderResults();
+                }
+            });
+        }
+    } else {
+        alert('Please upload a CSV file.');
     }
 });
 
-/**
- * Main CSV analysis function
- */
-function analyzeCSV(csvData, trackCondition, isAdvanced) {
-    // Parse CSV
-    const parseResult = Papa.parse(csvData, {
-        delimiter: ",",
-        header: true,
-        skipEmptyLines: true
+// ====== FINAL RENDER RESULTS WRAPPER (preserves scores + enables controls) ======
+function renderResults() {
+    const resultsDiv = document.getElementById('results');
+    resultsDiv.innerHTML = '';
+
+    if (meetings.length === 0) {
+        resultsDiv.innerHTML = '<p>No meetings loaded.</p>';
+        return;
+    }
+
+    const activeMeeting = meetings[activeMeetingIndex];
+    if (!activeMeeting || !activeMeeting.analysisResults) {
+        resultsDiv.innerHTML = '<p>No analysis results available.</p>';
+        return;
+    }
+
+    // Step 1 — Render all results normally (so we keep your full scoring view)
+    displayResults(activeMeeting.analysisResults, false, activeMeeting.fileName);
+
+    // Step 2 — Inject the navigation panel above
+    const navBar = createRaceNavigation(activeMeeting.races);
+    resultsDiv.prepend(navBar);
+
+    // Step 2.5 — Inject the filter bar between navigation and races
+    const filterBar = createFilterBar();
+    navBar.insertAdjacentElement('afterend', filterBar);
+
+    // Re-apply any active filters to the newly rendered results
+    if (activeFilters.length > 0) {
+        applyFilters();
+    }
+
+    // Step 4 — Re-bind Expand / Collapse All buttons (from your new UI)
+    const expandAllBtn = document.getElementById('expandAll');
+    const collapseAllBtn = document.getElementById('collapseAll');
+    if (expandAllBtn) {
+        expandAllBtn.onclick = () => {
+            document.querySelectorAll('.race-table-container').forEach(div => {
+                div.classList.add('expanded');
+                div.classList.remove('collapsed');
+            });
+        };
+    }
+
+    if (collapseAllBtn) {
+        collapseAllBtn.onclick = () => {
+            document.querySelectorAll('.race-table-container').forEach(div => {
+                div.classList.add('collapsed');
+                div.classList.remove('expanded');
+            });
+        };
+    }
+
+    // Step 5 — Re-bind race navigation scroll buttons
+    document.querySelectorAll('.race-nav-btn').forEach(btn => {
+        btn.onclick = () => {
+            const target = document.getElementById(`race-${btn.dataset.race}`);
+            if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
     });
-    
-    const data = parseResult.data;
-    const headerRow = parseResult.meta.fields;
-    
-    // Filter out header repeats
-    let filteredData = data.filter(row => {
-        const isHeaderRow = Object.values(row).every((value, index) => value === headerRow[index]);
-        return !isHeaderRow && row['horse name'] && row['race number'];
-    });
-    
-    // Calculate multi-row analyses
-    const filteredDataSectional = getLowestSectionalsByRace(filteredData);
-    const averageFormPrices = calculateAverageFormPrices(filteredData);
-    
-    // Get unique horses only (latest entry)
-    const getUniqueHorsesOnly = (data) => {
-        const latestByComposite = new Map();
-        
-        data.forEach(entry => {
-            const compositeKey = `${entry['horse name']}-${entry['race number']}`;
-            const currentDate = entry['form meeting date'];
-            
-            if (!latestByComposite.has(compositeKey) || 
-                currentDate > new Date(latestByComposite.get(compositeKey)['form meeting date'])) {
-                latestByComposite.set(compositeKey, entry);
-            }
-        });
-        
-        return Array.from(latestByComposite.values());
-    };
-    
-    filteredData = getUniqueHorsesOnly(filteredData);
-    
-    // Analyze each horse
-    const analysisResults = [];
-    
-    filteredData.forEach((horse) => {
-        if (horse['meeting date'] === undefined || !horse['horse name']) return;
-        
-        const compositeKey = `${horse['horse name']}-${horse['race number']}`;
-        const avgFormPrice = averageFormPrices[compositeKey];
-        
-        let [score, notes] = calculateScore(horse, trackCondition, false, avgFormPrice);
-        
-        const raceNumber = horse['race number'];
-        const horseName = horse['horse name'];
-        
-        // Add sectional score
-        const matchingHorse = filteredDataSectional.find(h => 
-            parseInt(h.race) === parseInt(raceNumber) && 
-            h.name.toLowerCase().trim() === horseName.toLowerCase().trim()
-        );
-        
-        if (matchingHorse) {
-            score += matchingHorse.sectionalScore;
-            notes += matchingHorse.sectionalNote;
-            
-            // Combo bonus
-            if (matchingHorse.hasAverage1st && matchingHorse.hasLastStart1st) {
-                const [classScore, classNotes] = compareClasses(
-                    horse['class restrictions'], 
-                    horse['form class'],
-                    horse['race prizemoney'],
-                    horse['prizemoney']
-                );
-                if (classScore > 0) {
-                    score += 15;
-                    notes += '+15.0 : COMBO BONUS - Fastest sectional + dropping in class\n';
-                }
-            }
-        }
-        
-        analysisResults.push({ 
-            horse, 
-            score, 
-            notes,
-            trueOdds: '',  // Will calculate after sorting
-            winProbability: '',
-            performanceComponent: '',
-            baseProbability: ''
-        });
-    });
-    
-    // Sort by race and score
-    analysisResults.sort((a, b) => {
-        if (a.horse['race number'] !== b.horse['race number']) {
-            return parseInt(a.horse['race number']) - parseInt(b.horse['race number']);
-        }
-        return b.score - a.score;
-    });
-    
-    // Calculate odds for each race
-    const raceGroups = {};
-    analysisResults.forEach(result => {
-        const raceNum = result.horse['race number'];
-        if (!raceGroups[raceNum]) {
-            raceGroups[raceNum] = [];
-        }
-        raceGroups[raceNum].push(result);
-    });
-    
-    // Apply Dirichlet odds calculation
-    Object.values(raceGroups).forEach(raceHorses => {
-        const scores = raceHorses.map(h => h.score);
-        const oddsResults = calculateDirichletOdds(scores, isAdvanced);
-        
-        raceHorses.forEach((horse, index) => {
-            horse.trueOdds = oddsResults[index].trueOdds;
-            if (isAdvanced) {
-                horse.winProbability = oddsResults[index].winProbability;
-                horse.performanceComponent = oddsResults[index].performanceComponent;
-                horse.baseProbability = oddsResults[index].baseProbability;
-            }
-        });
-    });
-    
-    return analysisResults;
 }
 
-// ===== EXTRACTED ALGORITHM FUNCTIONS FROM V27 =====
 
+
+
+
+// Mapping of equivalent jockey names
+const jockeyMapping = {
+    "J B Mc Donald": "James McDonald",
+    "A Bullock": "Aaron Bullock",
+    "W Pike": "William Pike",
+    "N Rawiller": "Nash Rawiller",
+    "J Part": "Josh Parr",
+    "J R Collett": "Jason Collett",
+    "M Zahra": "Mark Zahra",
+    "B Shinn": "Blake Shinn",
+    "C Williams": "Craig Williams",
+    "E Brown": "Ethan Brown",
+    "D Lane": "Damian Lane",
+    "B Melham": "Ben Melham",
+    //"J Kah": "" ???
+    // Add more mappings as needed
+};
+
+
+// Mapping of equivalent trainer names
+const trainerMapping = {
+    'C Maher': 'Ciaron Maher',
+    'C J Waller': 'Chris Waller',
+    'Ben Will & Jd Hayes': 'Ben, Will & J.D. Hayes',
+    'G Waterhouse & A Bott': 'Gai Waterhouse & Adrian Bott',
+    'G M Begg': 'Grahame Begg',
+    'P Stokes': 'Phillip Stokes',
+    'M M Laurie': 'Matthew Laurie'
+};
+
+   
+function convertCSV(data) {
+    // Normalize line endings (convert CRLF and CR to LF)
+    data = data.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+    // Replace semicolons with commas
+    data = data.replace(/;/g, ',');
+
+    // Remove extra whitespace around fields
+    data = data.replace(/^\s+|\s+$/gm, '');
+
+    // Handle inconsistent quoting
+    // Remove quotes if they are not needed
+    data = data.replace(/(^"|"$)/g, ''); // Remove quotes at the start/end of the line
+    data = data.replace(/"([^"]*)"/g, '$1'); // Remove quotes around fields
+
+    // Optionally, you can add more specific handling for quoted fields
+    // For example, if a field contains a comma, it should be quoted
+    data = data.replace(/([^,]+),([^,]+)/g, '"$1,$2"');
+
+    return data;
+}
 function calculateScore(horseRow, trackCondition, troubleshooting = false, averageFormPrice) {
     if (troubleshooting) console.log(`Calculating score for horse: ${horseRow['horse name']}`);
 
@@ -1867,3 +1958,57 @@ const shift = Math.max(basicShift, minShiftForRatio * 0.5);
         }
     });
     
+    return results;
+}
+
+function displayResults(analysisResults, isAdvanced, fileName) {
+    const resultsDiv = document.getElementById('results');
+    
+    // If this is the first meeting, clear previous results
+    if (resultsDiv.children.length === 0) {
+        resultsDiv.innerHTML = '<h2>Analysis Results</h2>';
+    }
+    
+    // Add meeting header
+    const meetingHeader = document.createElement('div');
+    meetingHeader.style.cssText = 'margin-top: 30px; margin-bottom: 20px;';
+    meetingHeader.innerHTML = `<h3 style="color: #2d3748; font-size: 1.5em; border-bottom: 2px solid #667eea; padding-bottom: 10px;">${fileName.replace('.csv', '')}</h3>`;
+    resultsDiv.appendChild(meetingHeader);
+
+    // Calculate dashboard statistics
+    const dashboardStats = calculateDashboardStats(analysisResults);
+    
+    // Add PDF download button
+    const pdfButtonContainer = document.createElement('div');
+    pdfButtonContainer.style.cssText = 'margin-bottom: 15px;';
+    const pdfButton = document.createElement('button');
+    pdfButton.className = 'pdf-download-btn';
+    pdfButton.textContent = 'Download PDF Report';
+    pdfButton.onclick = () => {
+        // Group horses by race number for PDF
+        const raceGroups = {};
+        analysisResults.forEach(result => {
+            const raceNum = result.horse['race number'];
+            if (!raceGroups[raceNum]) {
+                raceGroups[raceNum] = [];
+            }
+            raceGroups[raceNum].push(result);
+        });
+        generatePDF(fileName, dashboardStats, raceGroups, isAdvanced);
+    };
+    pdfButtonContainer.appendChild(pdfButton);
+    resultsDiv.appendChild(pdfButtonContainer);
+    
+    // Create and display dashboard
+    const dashboard = createDashboard(dashboardStats);
+    resultsDiv.appendChild(dashboard);
+
+    // Group horses by race number
+    const raceGroups = {};
+    analysisResults.forEach(result => {
+        const raceNum = result.horse['race number'];
+        if (!raceGroups[raceNum]) {
+            raceGroups[raceNum] = [];
+        }
+        raceGroups[raceNum].push(result);
+    });
