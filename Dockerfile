@@ -1,6 +1,6 @@
-FROM python:3.13-slim
+FROM python:3.12-slim
 
-# Install system dependencies including libpq-dev for psycopg2
+# Install system dependencies for psycopg2 + Node.js
 RUN apt-get update && \
     apt-get install -y curl build-essential libpq-dev gcc && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
@@ -11,7 +11,7 @@ WORKDIR /app
 
 COPY . .
 
-# Upgrade pip and setuptools (important for psycopg2)
+# Upgrade pip, setuptools, wheel
 RUN pip install --upgrade pip setuptools wheel
 
 # Install Python dependencies
