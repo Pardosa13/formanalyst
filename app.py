@@ -1,20 +1,28 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
-from flask_login import LoginManager, login_user, logout_user, login_required, current_user, UserMixin
+from flask import Flask, render_template, redirect, url_for, request, flash
+from flask_login import LoginManager, UserMixin, login_user, login_required, current_user, logout_user
+from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = "supersecretkey"
 
 # Flask-Login setup
 login_manager = LoginManager()
-login_manager.login_view = "login"
 login_manager.init_app(app)
+login_manager.login_view = "login"
 
-# Dummy user database
+# Example users
 users = {
-    "admin": {"password": "admin123", "is_admin": True},
-    "user": {"password": "user123", "is_admin": False},
+    "admin": {"password": "password123", "is_admin": True},
+    "user": {"password": "userpass", "is_admin": False},
 }
 
+# Dummy meetings data
+dummy_meetings = [
+    {"id": 1, "meeting_name": "Race 1", "uploaded_at": datetime.now(), "user": {"username": "admin"}},
+    {"id": 2, "meeting_name": "Race 2", "uploaded_at": datetime.now(), "user": {"username": "user"}}
+]
+
+# User class
 class User(UserMixin):
     def __init__(self, username):
         self.id = username
@@ -27,12 +35,7 @@ def load_user(user_id):
         return User(user_id)
     return None
 
-# ---- Routes ----
-
-@app.route("/", methods=["GET"])
-def home():
-    return redirect(url_for("login"))
-
+# Routes
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -40,58 +43,39 @@ def login():
         password = request.form.get("password")
         if username in users and users[username]["password"] == password:
             user = User(username)
-            login_user(user, remember=bool(request.form.get("remember")))
-            flash("Logged in successfully.", "success")
+            login_user(user, remember=("remember" in request.form))
             return redirect(url_for("dashboard"))
-        flash("Invalid credentials.", "danger")
-        return redirect(url_for("login"))
+        else:
+            flash("Invalid credentials", "danger")
     return render_template("login.html")
 
 @app.route("/logout")
 @login_required
 def logout():
     logout_user()
-    flash("Logged out successfully.", "success")
     return redirect(url_for("login"))
 
-@app.route("/dashboard", methods=["GET", "POST"])
+@app.route("/dashboard")
 @login_required
 def dashboard():
-    # Example recent meetings
-    recent_meetings = [
-        {"meeting_name": "Melbourne Cup", "uploaded_at": "2025-11-01 12:00", "id": 1},
-        {"meeting_name": "Caulfield Stakes", "uploaded_at": "2025-11-15 14:30", "id": 2},
-    ]
+    # For simplicity, show all meetings for everyone
+    recent_meetings = dummy_meetings
     return render_template("dashboard.html", recent_meetings=recent_meetings)
 
 @app.route("/history")
 @login_required
 def history():
-    # Example history
-    recent_analyses = [
-        {"meeting_name": "Melbourne Cup", "uploaded_at": "2025-11-01 12:00", "id": 1},
-        {"meeting_name": "Caulfield Stakes", "uploaded_at": "2025-11-15 14:30", "id": 2},
-    ]
-    return render_template("history.html", recent_analyses=recent_analyses)
+    meetings = dummy_meetings
+    return render_template("history.html", meetings=meetings)
 
-@app.route("/admin")
+@app.route("/view_meeting/<int:meeting_id>")
 @login_required
-def admin_panel():
-    if not current_user.is_admin:
-        flash("Access denied.", "danger")
+def view_meeting(meeting_id):
+    meeting = next((m for m in dummy_meetings if m["id"] == meeting_id), None)
+    if not meeting:
+        flash("Meeting not found", "danger")
         return redirect(url_for("dashboard"))
-    return render_template("admin.html")
-
-@app.route("/analyze", methods=["POST"])
-@login_required
-def analyze():
-    file = request.files.get("csv_file")
-    if not file:
-        flash("Please upload a CSV file.", "danger")
-        return redirect(url_for("dashboard"))
-    # Here you would process the CSV
-    flash(f"Analyzed {file.filename} successfully!", "success")
-    return redirect(url_for("dashboard"))
+    return f"Showing results for {meeting['meeting_name']}"  # Replace with your actual results page
 
 if __name__ == "__main__":
     app.run(debug=True)
