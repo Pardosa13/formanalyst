@@ -1,73 +1,65 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session
-from werkzeug.utils import secure_filename
-import os
+from flask import Flask, render_template, redirect, url_for, request, flash
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 
 app = Flask(__name__)
-app.secret_key = "your_secret_key"  # Keep your original secret key
+app.secret_key = "supersecretkey"
 
-# Configure upload folder
-UPLOAD_FOLDER = 'uploads'
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
+# --- Flask-Login setup ---
+login_manager = LoginManager()
+login_manager.login_view = "login"
+login_manager.init_app(app)
 
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+# In-memory user store for demo purposes
+USERS = {
+    "admin": {"password": "password", "is_admin": True},
+    "user": {"password": "password", "is_admin": False}
+}
 
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+class User(UserMixin):
+    def __init__(self, username):
+        self.id = username
+        self.username = username
+        self.is_admin = USERS[username]["is_admin"]
 
-# Home route
-@app.route('/')
-def home():
-    return render_template('index.html')  # restore your original homepage
+@login_manager.user_loader
+def load_user(user_id):
+    if user_id in USERS:
+        return User(user_id)
+    return None
 
-# Login route
-@app.route('/login', methods=['GET', 'POST'])
+# --- Routes ---
+@app.route("/")
+def index():
+    return redirect(url_for("dashboard"))
+
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        # Replace with your actual credentials
-        if username == 'admin' and password == 'password123':
-            session['user'] = username
-            return redirect(url_for('dashboard'))
+    if request.method == "POST":
+        username = request.form["username"]
+        password = request.form["password"]
+        user = USERS.get(username)
+        if user and user["password"] == password:
+            login_user(User(username))
+            flash("Logged in successfully!", "success")
+            return redirect(url_for("dashboard"))
         else:
-            flash('Invalid credentials', 'danger')
-    return render_template('login.html')
+            flash("Invalid credentials", "danger")
+            return redirect(url_for("login"))
+    return render_template("login.html")
 
-# Dashboard route
-@app.route('/dashboard')
-def dashboard():
-    if 'user' not in session:
-        return redirect(url_for('login'))
-    return render_template('dashboard.html')
-
-# Logout route
-@app.route('/logout')
+@app.route("/logout")
+@login_required
 def logout():
-    session.pop('user', None)
-    return redirect(url_for('login'))
+    logout_user()
+    flash("Logged out successfully!", "success")
+    return redirect(url_for("login"))
 
-# File upload route
-@app.route('/upload', methods=['GET', 'POST'])
-def upload_file():
-    if 'user' not in session:
-        return redirect(url_for('login'))
-    
-    if request.method == 'POST':
-        if 'file' not in request.files:
-            flash('No file part', 'danger')
-            return redirect(request.url)
-        file = request.files['file']
-        if file.filename == '':
-            flash('No selected file', 'danger')
-            return redirect(request.url)
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-            flash('File uploaded successfully', 'success')
-            return redirect(url_for('dashboard'))
-    return render_template('upload.html')
+@app.route("/dashboard")
+@login_required
+def dashboard():
+    # Example: recent_meetings can be empty list for now
+    recent_meetings = []
+    return render_template("dashboard.html", recent_meetings=recent_meetings)
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=8080)
+    app.run(debug=True)
