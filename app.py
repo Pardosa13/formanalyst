@@ -86,6 +86,7 @@ def analyze():
         flash('No selected file', 'danger')
         return redirect(url_for('dashboard'))
     if file and allowed_file(file.filename):
+    # Everything under the if must be indented
     filename = secure_filename(file.filename)
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
@@ -114,5 +115,3 @@ def analyze():
     meetings.append(meeting)
 
     return redirect(url_for('view_meeting', meeting_id=meeting['id']))
-
-
