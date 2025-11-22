@@ -2045,6 +2045,7 @@ analysisResults.push({ horse, score, notes });
 // STDIN/STDOUT HANDLER - This is what Python calls
 // ============================================================
 
+
 let inputData = '';
 process.stdin.setEncoding('utf8');
 
@@ -2078,3 +2079,4 @@ process.stdin.on('end', () => {
     process.exit(1);
   }
 });
+
