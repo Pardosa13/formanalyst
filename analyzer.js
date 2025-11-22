@@ -2046,6 +2046,7 @@ analysisResults.push({ horse, score, notes });
 // ============================================================
 
 
+
 let inputData = '';
 process.stdin.setEncoding('utf8');
 
@@ -2079,4 +2080,3 @@ process.stdin.on('end', () => {
     process.exit(1);
   }
 });
-
