@@ -1,92 +1,250 @@
+import os
+import json
+import subprocess
 from flask import Flask, render_template, redirect, url_for, request, flash
-from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
-from werkzeug.security import generate_password_hash, check_password_hash
+from flask_login import LoginManager, login_user, login_required, logout_user, current_user
+from werkzeug.security import generate_password_hash
 from datetime import datetime
-import random
+
+from models import db, User, Meeting, Race, Horse, Prediction
 
 app = Flask(__name__)
-app.secret_key = "supersecretkey"
 
-# ----- Flask-Login Setup -----
+# Configuration
+app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///formanalyst.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Fix for postgres:// vs postgresql:// (Railway uses postgres://)
+if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
+    app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace('postgres://', 'postgresql://', 1)
+
+# Initialize extensions
+db.init_app(app)
+
 login_manager = LoginManager()
 login_manager.login_view = "login"
 login_manager.init_app(app)
 
-# ----- Dummy Users -----
-# Replace with your database in production
-users = {
-    "admin": {"password": generate_password_hash("adminpass"), "is_admin": True},
-    "user": {"password": generate_password_hash("userpass"), "is_admin": False}
-}
-
-# ----- Store meetings per user -----
-# In production, this should be in a database
-all_meetings = {}  # Format: {username: [meetings]}
-
-# ----- User Class -----
-class User(UserMixin):
-    def __init__(self, username, is_admin=False):
-        self.id = username
-        self.username = username
-        self.is_admin = is_admin
-
 @login_manager.user_loader
 def load_user(user_id):
-    if user_id in users:
-        user_info = users[user_id]
-        return User(user_id, user_info["is_admin"])
-    return None
+    return User.query.get(int(user_id))
 
-# ----- Helper Functions -----
-def get_user_meetings(username):
-    """Get meetings for a specific user"""
-    if username not in all_meetings:
-        all_meetings[username] = []
-    return all_meetings[username]
+# Create tables and default admin user
+with app.app_context():
+    db.create_all()
+    # Create default admin if doesn't exist
+    admin = User.query.filter_by(username='admin').first()
+    if not admin:
+        admin = User(
+            username='admin',
+            email='admin@theformanalyst.com',
+            is_admin=True
+        )
+        admin.set_password(os.environ.get('ADMIN_PASSWORD', 'changeme123'))
+        db.session.add(admin)
+        db.session.commit()
 
-def generate_dummy_race_data():
-    """Generate dummy race analysis data"""
-    horses = []
-    for i in range(1, random.randint(8, 12)):
-        horses.append({
-            "number": i,
-            "name": f"Horse {i}",
-            "barrier": random.randint(1, 12),
-            "weight": round(random.uniform(54, 59), 1),
-            "jockey": f"Jockey {random.randint(1, 20)}",
-            "trainer": f"Trainer {random.randint(1, 15)}",
-            "last_5_starts": f"{random.randint(1,10)}-{random.randint(1,10)}-{random.randint(1,10)}-{random.randint(1,10)}-{random.randint(1,10)}",
-            "win_probability": round(random.uniform(5, 25), 1),
-            "place_probability": round(random.uniform(15, 60), 1),
-            "recommended_bet": random.choice(["Win", "Place", "Each Way", "Avoid"]),
-            "speed_rating": random.randint(85, 105),
-            "class_rating": random.randint(70, 95)
-        })
-    return sorted(horses, key=lambda x: x['win_probability'], reverse=True)
+
+# ----- Analyzer Integration -----
+def run_analyzer(csv_data, track_condition, is_advanced=False):
+    """
+    Run the JavaScript analyzer with the CSV data
+    Returns list of analysis results
+    """
+    input_data = {
+        'csv_data': csv_data,
+        'track_condition': track_condition,
+        'is_advanced': is_advanced
+    }
+    
+    analyzer_path = os.path.join(os.path.dirname(__file__), 'analyzer.js')
+    
+    try:
+        result = subprocess.run(
+            ['node', analyzer_path],
+            input=json.dumps(input_data),
+            capture_output=True,
+            text=True,
+            timeout=60  # Increased timeout for large files
+        )
+        
+        if result.returncode != 0:
+            raise Exception(f"Analyzer error: {result.stderr}")
+        
+        return json.loads(result.stdout)
+        
+    except subprocess.TimeoutExpired:
+        raise Exception("Analysis timed out (>60 seconds)")
+    except json.JSONDecodeError as e:
+        raise Exception(f"Invalid analyzer output: {e}")
+    except FileNotFoundError:
+        raise Exception("Node.js not found. Please ensure Node.js is installed.")
+    except Exception as e:
+        raise Exception(f"Analysis failed: {str(e)}")
+
+
+def process_and_store_results(csv_data, filename, track_condition, user_id, is_advanced=False):
+    """
+    Process CSV through analyzer and store results in database
+    """
+    # Run the analyzer
+    analysis_results = run_analyzer(csv_data, track_condition, is_advanced)
+    
+    if not analysis_results:
+        raise Exception("No results returned from analyzer")
+    
+    # Create meeting record
+    meeting = Meeting(
+        user_id=user_id,
+        meeting_name=filename.replace('.csv', ''),
+        csv_data=csv_data
+    )
+    db.session.add(meeting)
+    db.session.flush()  # Get meeting ID
+    
+    # Group results by race
+    races_data = {}
+    for result in analysis_results:
+        race_num = result['horse'].get('race number', '0')
+        if race_num not in races_data:
+            races_data[race_num] = []
+        races_data[race_num].append(result)
+    
+    # Create race and horse records
+    for race_num, horses_results in races_data.items():
+        # Get race info from first horse
+        first_horse = horses_results[0]['horse'] if horses_results else {}
+        
+        race = Race(
+            meeting_id=meeting.id,
+            race_number=int(race_num) if race_num else 0,
+            distance=first_horse.get('distance', ''),
+            race_class=first_horse.get('class restrictions', ''),
+            track_condition=track_condition
+        )
+        db.session.add(race)
+        db.session.flush()
+        
+        # Create horse and prediction records
+        for result in horses_results:
+            horse_data = result['horse']
+            
+            horse = Horse(
+                race_id=race.id,
+                horse_name=horse_data.get('horse name', 'Unknown'),
+                barrier=int(horse_data.get('barrier', 0)) if horse_data.get('barrier') else None,
+                weight=float(horse_data.get('horse weight', 0)) if horse_data.get('horse weight') else None,
+                jockey=horse_data.get('horse jockey', ''),
+                trainer=horse_data.get('horse trainer', ''),
+                form=horse_data.get('horse last10', ''),
+                csv_data=horse_data
+            )
+            db.session.add(horse)
+            db.session.flush()
+            
+            prediction = Prediction(
+                horse_id=horse.id,
+                score=result.get('score', 0),
+                predicted_odds=result.get('trueOdds', ''),
+                win_probability=result.get('winProbability', ''),
+                performance_component=result.get('performanceComponent', ''),
+                base_probability=result.get('baseProbability', ''),
+                notes=result.get('notes', '')
+            )
+            db.session.add(prediction)
+    
+    db.session.commit()
+    return meeting
+
+
+def get_meeting_results(meeting_id):
+    """
+    Retrieve meeting results formatted for display
+    """
+    meeting = Meeting.query.get_or_404(meeting_id)
+    races = Race.query.filter_by(meeting_id=meeting_id).order_by(Race.race_number).all()
+    
+    results = {
+        'meeting_name': meeting.meeting_name,
+        'uploaded_at': meeting.uploaded_at,
+        'races': []
+    }
+    
+    for race in races:
+        horses = Horse.query.filter_by(race_id=race.id).all()
+        
+        race_data = {
+            'race_number': race.race_number,
+            'distance': race.distance,
+            'race_class': race.race_class,
+            'track_condition': race.track_condition,
+            'horses': []
+        }
+        
+        for horse in horses:
+            pred = horse.prediction
+            horse_data = {
+                'horse_name': horse.horse_name,
+                'barrier': horse.barrier,
+                'weight': horse.weight,
+                'jockey': horse.jockey,
+                'trainer': horse.trainer,
+                'form': horse.form,
+                'score': pred.score if pred else 0,
+                'odds': pred.predicted_odds if pred else '',
+                'win_probability': pred.win_probability if pred else '',
+                'performance_component': pred.performance_component if pred else '',
+                'base_probability': pred.base_probability if pred else '',
+                'notes': pred.notes if pred else ''
+            }
+            race_data['horses'].append(horse_data)
+        
+        # Sort horses by score descending
+        race_data['horses'].sort(key=lambda x: x['score'], reverse=True)
+        results['races'].append(race_data)
+    
+    return results
+
 
 # ----- Routes -----
 @app.route("/")
 def home():
+    if current_user.is_authenticated:
+        return redirect(url_for("dashboard"))
     return redirect(url_for("login"))
+
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    if current_user.is_authenticated:
+        return redirect(url_for("dashboard"))
+        
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
         remember = bool(request.form.get("remember"))
         
-        user_info = users.get(username)
-        if not user_info or not check_password_hash(user_info["password"], password):
+        user = User.query.filter_by(username=username).first()
+        
+        if not user or not user.check_password(password):
             flash("Invalid username or password", "danger")
             return redirect(url_for("login"))
         
-        user = User(username, user_info["is_admin"])
+        if not user.is_active:
+            flash("Your account has been deactivated", "danger")
+            return redirect(url_for("login"))
+        
+        # Update last login
+        user.last_login = datetime.utcnow()
+        db.session.commit()
+        
         login_user(user, remember=remember)
         flash(f"Welcome back, {username}!", "success")
         return redirect(url_for("dashboard"))
     
     return render_template("login.html")
+
 
 @app.route("/logout")
 @login_required
@@ -95,78 +253,96 @@ def logout():
     flash("You have been logged out", "info")
     return redirect(url_for("login"))
 
+
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    # Get only the current user's meetings
-    user_meetings = get_user_meetings(current_user.username)
-    # Get the 5 most recent meetings for display
-    recent_meetings = user_meetings[:5] if user_meetings else []
+    # Get user's recent meetings
+    recent_meetings = Meeting.query.filter_by(user_id=current_user.id)\
+        .order_by(Meeting.uploaded_at.desc())\
+        .limit(5)\
+        .all()
     return render_template("dashboard.html", recent_meetings=recent_meetings)
+
 
 @app.route("/analyze", methods=["POST"])
 @login_required
 def analyze():
-    # Handle CSV upload and analysis
+    """Handle CSV upload and run analysis"""
     csv_file = request.files.get("csv_file")
-    meeting_name = csv_file.filename if csv_file else f"Meeting {datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    track_condition = request.form.get("track_condition", "Good")
-    advanced_mode = bool(request.form.get("advanced_mode"))
     
-    # Get user's meetings list
-    user_meetings = get_user_meetings(current_user.username)
+    if not csv_file or csv_file.filename == '':
+        flash("Please select a CSV file", "danger")
+        return redirect(url_for("dashboard"))
     
-    # Create new meeting analysis
-    new_meeting = {
-        "id": len(user_meetings) + 1,
-        "meeting_name": meeting_name,
-        "uploaded_at": datetime.now(),
-        "user": current_user.username,
-        "track_condition": track_condition,
-        "advanced_mode": advanced_mode,
-        "total_races": random.randint(6, 10),
-        "analyzed_horses": random.randint(50, 120),
-        "confidence_level": random.choice(["High", "Medium", "Low"]),
-        "races": []  # This would contain actual race data
-    }
+    if not csv_file.filename.endswith('.csv'):
+        flash("Please upload a CSV file", "danger")
+        return redirect(url_for("dashboard"))
     
-    # Generate dummy races for this meeting
-    num_races = new_meeting["total_races"]
-    for race_num in range(1, num_races + 1):
-        race = {
-            "race_number": race_num,
-            "race_name": f"Race {race_num} - {random.choice(['Maiden', 'Class 3', 'Open Handicap', 'Group 3'])}",
-            "distance": f"{random.choice([1000, 1200, 1400, 1600, 2000])}m",
-            "prize_money": f"${random.randint(20, 100) * 1000:,}",
-            "horses": generate_dummy_race_data()
-        }
-        new_meeting["races"].append(race)
+    track_condition = request.form.get("track_condition", "good")
+    is_advanced = bool(request.form.get("advanced_mode"))
     
-    # Insert at beginning of user's meetings list
-    user_meetings.insert(0, new_meeting)
-    all_meetings[current_user.username] = user_meetings
-    
-    flash(f"{meeting_name} analyzed successfully!", "success")
-    return redirect(url_for("view_meeting", meeting_id=new_meeting['id']))
+    try:
+        # Read CSV data
+        csv_data = csv_file.read().decode('utf-8')
+        
+        # Process and store results
+        meeting = process_and_store_results(
+            csv_data=csv_data,
+            filename=csv_file.filename,
+            track_condition=track_condition,
+            user_id=current_user.id,
+            is_advanced=is_advanced
+        )
+        
+        flash(f"{meeting.meeting_name} analyzed successfully!", "success")
+        return redirect(url_for("view_meeting", meeting_id=meeting.id))
+        
+    except Exception as e:
+        flash(f"Analysis failed: {str(e)}", "danger")
+        return redirect(url_for("dashboard"))
+
 
 @app.route("/history")
 @login_required
 def history():
-    # Get only the current user's meetings
-    user_meetings = get_user_meetings(current_user.username)
-    return render_template("history.html", meetings=user_meetings)
+    meetings = Meeting.query.filter_by(user_id=current_user.id)\
+        .order_by(Meeting.uploaded_at.desc())\
+        .all()
+    return render_template("history.html", meetings=meetings)
 
-@app.route("/view_meeting/<int:meeting_id>")
+
+@app.route("/meeting/<int:meeting_id>")
 @login_required
 def view_meeting(meeting_id):
-    user_meetings = get_user_meetings(current_user.username)
-    meeting = next((m for m in user_meetings if m["id"] == meeting_id), None)
+    """View analysis results for a meeting"""
+    meeting = Meeting.query.get_or_404(meeting_id)
     
-    if not meeting:
-        flash("Meeting not found or you don't have access to it", "danger")
+    # Check ownership
+    if meeting.user_id != current_user.id and not current_user.is_admin:
+        flash("You don't have access to this meeting", "danger")
         return redirect(url_for("dashboard"))
     
-    return render_template("view_meeting.html", meeting=meeting)
+    results = get_meeting_results(meeting_id)
+    return render_template("view_meeting.html", meeting=meeting, results=results)
+
+
+@app.route("/meeting/<int:meeting_id>/delete", methods=["POST"])
+@login_required
+def delete_meeting(meeting_id):
+    """Delete a meeting"""
+    meeting = Meeting.query.get_or_404(meeting_id)
+    
+    if meeting.user_id != current_user.id and not current_user.is_admin:
+        flash("You don't have permission to delete this meeting", "danger")
+        return redirect(url_for("history"))
+    
+    db.session.delete(meeting)
+    db.session.commit()
+    
+    flash(f"Meeting '{meeting.meeting_name}' deleted", "success")
+    return redirect(url_for("history"))
+
 
 @app.route("/admin", methods=["GET", "POST"])
 @login_required
@@ -175,99 +351,127 @@ def admin_panel():
         flash("Access denied", "danger")
         return redirect(url_for("dashboard"))
     
-    # Handle user creation form
     if request.method == "POST":
         action = request.form.get("action")
         
         if action == "create_user":
-            new_username = request.form.get("username")
-            new_password = request.form.get("password")
+            username = request.form.get("username")
+            email = request.form.get("email")
+            password = request.form.get("password")
             is_admin = bool(request.form.get("is_admin"))
             
-            # Validation
-            if not new_username or not new_password:
-                flash("Username and password are required", "danger")
-            elif new_username in users:
-                flash(f"User '{new_username}' already exists", "danger")
-            elif len(new_password) < 6:
-                flash("Password must be at least 6 characters long", "danger")
+            if not username or not email or not password:
+                flash("All fields are required", "danger")
+            elif User.query.filter_by(username=username).first():
+                flash(f"Username '{username}' already exists", "danger")
+            elif User.query.filter_by(email=email).first():
+                flash(f"Email '{email}' already exists", "danger")
+            elif len(password) < 6:
+                flash("Password must be at least 6 characters", "danger")
             else:
-                # Create new user
-                users[new_username] = {
-                    "password": generate_password_hash(new_password),
-                    "is_admin": is_admin
-                }
-                flash(f"User '{new_username}' created successfully", "success")
+                new_user = User(username=username, email=email, is_admin=is_admin)
+                new_user.set_password(password)
+                db.session.add(new_user)
+                db.session.commit()
+                flash(f"User '{username}' created successfully", "success")
         
         elif action == "delete_user":
-            username_to_delete = request.form.get("username")
+            user_id = request.form.get("user_id")
+            user = User.query.get(user_id)
             
-            if username_to_delete == current_user.username:
+            if not user:
+                flash("User not found", "danger")
+            elif user.id == current_user.id:
                 flash("You cannot delete your own account", "danger")
-            elif username_to_delete not in users:
-                flash(f"User '{username_to_delete}' not found", "danger")
             else:
-                # Delete user and their meetings
-                del users[username_to_delete]
-                if username_to_delete in all_meetings:
-                    del all_meetings[username_to_delete]
-                flash(f"User '{username_to_delete}' deleted successfully", "success")
+                username = user.username
+                db.session.delete(user)
+                db.session.commit()
+                flash(f"User '{username}' deleted", "success")
         
         elif action == "reset_password":
-            username_to_reset = request.form.get("username")
+            user_id = request.form.get("user_id")
             new_password = request.form.get("new_password")
+            user = User.query.get(user_id)
             
-            if username_to_reset not in users:
-                flash(f"User '{username_to_reset}' not found", "danger")
-            elif not new_password or len(new_password) < 6:
-                flash("Password must be at least 6 characters long", "danger")
+            if not user:
+                flash("User not found", "danger")
+            elif len(new_password) < 6:
+                flash("Password must be at least 6 characters", "danger")
             else:
-                users[username_to_reset]["password"] = generate_password_hash(new_password)
-                flash(f"Password reset successfully for '{username_to_reset}'", "success")
+                user.set_password(new_password)
+                db.session.commit()
+                flash(f"Password reset for '{user.username}'", "success")
         
         elif action == "toggle_admin":
-            username_to_toggle = request.form.get("username")
+            user_id = request.form.get("user_id")
+            user = User.query.get(user_id)
             
-            if username_to_toggle == current_user.username:
+            if not user:
+                flash("User not found", "danger")
+            elif user.id == current_user.id:
                 flash("You cannot change your own admin status", "danger")
-            elif username_to_toggle not in users:
-                flash(f"User '{username_to_toggle}' not found", "danger")
             else:
-                # Toggle admin status
-                users[username_to_toggle]["is_admin"] = not users[username_to_toggle]["is_admin"]
-                new_status = "admin" if users[username_to_toggle]["is_admin"] else "regular user"
-                flash(f"'{username_to_toggle}' is now a {new_status}", "success")
+                user.is_admin = not user.is_admin
+                db.session.commit()
+                status = "admin" if user.is_admin else "regular user"
+                flash(f"'{user.username}' is now a {status}", "success")
+        
+        elif action == "toggle_active":
+            user_id = request.form.get("user_id")
+            user = User.query.get(user_id)
+            
+            if not user:
+                flash("User not found", "danger")
+            elif user.id == current_user.id:
+                flash("You cannot deactivate your own account", "danger")
+            else:
+                user.is_active = not user.is_active
+                db.session.commit()
+                status = "activated" if user.is_active else "deactivated"
+                flash(f"'{user.username}' has been {status}", "success")
         
         return redirect(url_for("admin_panel"))
     
-    # Prepare admin statistics
-    admin_stats = {
-        "total_users": len(users),
-        "total_meetings": sum(len(meetings) for meetings in all_meetings.values()),
-        "users_data": [],
-        "all_users": []  # For user management
+    # Get stats
+    users = User.query.all()
+    total_meetings = Meeting.query.count()
+    
+    users_data = []
+    for user in users:
+        meeting_count = Meeting.query.filter_by(user_id=user.id).count()
+        users_data.append({
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'is_admin': user.is_admin,
+            'is_active': user.is_active,
+            'meeting_count': meeting_count,
+            'last_login': user.last_login,
+            'created_at': user.created_at
+        })
+    
+    stats = {
+        'total_users': len(users),
+        'total_meetings': total_meetings,
+        'users': users_data
     }
     
-    # Get user activity data
-    for username, user_meetings in all_meetings.items():
-        admin_stats["users_data"].append({
-            "username": username,
-            "meeting_count": len(user_meetings),
-            "last_activity": user_meetings[0]["uploaded_at"] if user_meetings else None
-        })
-    
-    # Get all users for management
-    for username, user_info in users.items():
-        user_meetings = all_meetings.get(username, [])
-        admin_stats["all_users"].append({
-            "username": username,
-            "is_admin": user_info["is_admin"],
-            "meeting_count": len(user_meetings),
-            "last_activity": user_meetings[0]["uploaded_at"] if user_meetings else None
-        })
-    
-    return render_template("admin.html", stats=admin_stats)
+    return render_template("admin.html", stats=stats)
+
+
+# Error handlers
+@app.errorhandler(404)
+def not_found_error(error):
+    return render_template('404.html'), 404
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    db.session.rollback()
+    return render_template('500.html'), 500
+
 
 # ----- Run -----
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080, debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=True)
