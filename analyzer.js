@@ -1480,11 +1480,20 @@ function getLowestSectionalsByRace(data) {
           distances.add(distance);
         }
         
-        parsedData.push({
-          ...entry,
-          time: time,
-          distance: distance
-        });
+        const newEntry = { ...entry };
+
+// Only attach time if detected AND non-undefined
+if (time !== undefined) {
+  newEntry.time = time;
+}
+
+// Only attach distance if detected AND non-undefined
+if (distance !== undefined) {
+  newEntry.distance = distance;
+}
+
+parsedData.push(newEntry);
+
       }
     });
 
