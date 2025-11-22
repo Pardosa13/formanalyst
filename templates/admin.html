@@ -28,7 +28,7 @@
             <div class="card bg-info text-white">
                 <div class="card-body">
                     <h5 class="card-title">Active Users</h5>
-                    <h2>{{ stats.users_data|length }}</h2>
+                    <h2>{{ stats.users|length }}</h2>
                 </div>
             </div>
         </div>
@@ -37,125 +37,110 @@
     <!-- Tab Navigation -->
     <ul class="nav nav-tabs mb-3" id="adminTabs" role="tablist">
         <li class="nav-item" role="presentation">
-            <button class="nav-link active" id="activity-tab" data-bs-toggle="tab" data-bs-target="#activity" type="button">User Activity</button>
-        </li>
-        <li class="nav-item" role="presentation">
-            <button class="nav-link" id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button">Manage Users</button>
+            <button class="nav-link active" id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button">Manage Users</button>
         </li>
         <li class="nav-item" role="presentation">
             <button class="nav-link" id="create-tab" data-bs-toggle="tab" data-bs-target="#create" type="button">Create User</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="myaccount-tab" data-bs-toggle="tab" data-bs-target="#myaccount" type="button">My Account</button>
         </li>
     </ul>
 
     <!-- Tab Content -->
     <div class="tab-content" id="adminTabContent">
-        <!-- User Activity Tab -->
-        <div class="tab-pane fade show active" id="activity" role="tabpanel">
-            <div class="card">
-                <div class="card-header">
-                    <h4>User Activity</h4>
-                </div>
-                <div class="card-body">
-                    <table class="table table-striped">
-                        <thead>
-                            <tr>
-                                <th>Username</th>
-                                <th>Total Meetings</th>
-                                <th>Last Activity</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for user in stats.users_data %}
-                            <tr>
-                                <td>{{ user.username }}</td>
-                                <td>{{ user.meeting_count }}</td>
-                                <td>
-                                    {% if user.last_activity %}
-                                        {{ user.last_activity.strftime('%Y-%m-%d %H:%M') }}
-                                    {% else %}
-                                        No activity
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if user.last_activity %}
-                                        <span class="badge bg-success">Active</span>
-                                    {% else %}
-                                        <span class="badge bg-secondary">Inactive</span>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
+        
         <!-- Manage Users Tab -->
-        <div class="tab-pane fade" id="users" role="tabpanel">
+        <div class="tab-pane fade show active" id="users" role="tabpanel">
             <div class="card">
                 <div class="card-header">
                     <h4>All Users</h4>
                 </div>
                 <div class="card-body">
-                    <table class="table table-striped">
-                        <thead>
-                            <tr>
-                                <th>Username</th>
-                                <th>Role</th>
-                                <th>Meetings</th>
-                                <th>Last Activity</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for user in stats.all_users %}
-                            <tr>
-                                <td>{{ user.username }}</td>
-                                <td>
-                                    {% if user.is_admin %}
-                                        <span class="badge bg-danger">Admin</span>
-                                    {% else %}
-                                        <span class="badge bg-primary">User</span>
-                                    {% endif %}
-                                </td>
-                                <td>{{ user.meeting_count }}</td>
-                                <td>
-                                    {% if user.last_activity %}
-                                        {{ user.last_activity.strftime('%Y-%m-%d %H:%M') }}
-                                    {% else %}
-                                        Never
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    <!-- Toggle Admin Button -->
-                                    {% if user.username != current_user.username %}
-                                        <button class="btn btn-sm btn-info" onclick="toggleAdmin('{{ user.username }}', {{ user.is_admin|lower }})">
-                                            {% if user.is_admin %}Make User{% else %}Make Admin{% endif %}
-                                        </button>
-                                    {% endif %}
-                                    
-                                    <!-- Reset Password Button -->
-                                    <button class="btn btn-sm btn-warning" onclick="showResetPassword('{{ user.username }}')">
-                                        Reset Pass
-                                    </button>
-                                    
-                                    <!-- Delete User Button (disabled for current user) -->
-                                    {% if user.username != current_user.username %}
-                                        <button class="btn btn-sm btn-danger" onclick="confirmDelete('{{ user.username }}')">
-                                            Delete
-                                        </button>
-                                    {% else %}
-                                        <button class="btn btn-sm btn-danger" disabled title="Cannot delete yourself">
-                                            Delete
-                                        </button>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Username</th>
+                                    <th>Email</th>
+                                    <th>Role</th>
+                                    <th>Status</th>
+                                    <th>Meetings</th>
+                                    <th>Last Login</th>
+                                    <th>Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for user in stats.users %}
+                                <tr>
+                                    <td><strong>{{ user.username }}</strong></td>
+                                    <td>{{ user.email }}</td>
+                                    <td>
+                                        {% if user.is_admin %}
+                                            <span class="badge bg-danger">Admin</span>
+                                        {% else %}
+                                            <span class="badge bg-primary">User</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if user.is_active %}
+                                            <span class="badge bg-success">Active</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">Inactive</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ user.meeting_count }}</td>
+                                    <td>
+                                        {% if user.last_login %}
+                                            {{ user.last_login.strftime('%Y-%m-%d %H:%M') }}
+                                        {% else %}
+                                            Never
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if user.created_at %}
+                                            {{ user.created_at.strftime('%Y-%m-%d') }}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <!-- Toggle Admin Button -->
+                                        {% if user.id != current_user.id %}
+                                            <button class="btn btn-sm btn-info mb-1" onclick="toggleAdmin('{{ user.id }}', {{ user.is_admin|lower }})">
+                                                {% if user.is_admin %}Revoke Admin{% else %}Make Admin{% endif %}
+                                            </button>
+                                        {% endif %}
+                                        
+                                        <!-- Toggle Active Button -->
+                                        {% if user.id != current_user.id %}
+                                            <button class="btn btn-sm btn-{{ 'warning' if user.is_active else 'success' }} mb-1" onclick="toggleActive('{{ user.id }}', {{ user.is_active|lower }})">
+                                                {% if user.is_active %}Deactivate{% else %}Activate{% endif %}
+                                            </button>
+                                        {% endif %}
+                                        
+                                        <!-- Reset Password Button -->
+                                        {% if user.id != current_user.id %}
+                                            <button class="btn btn-sm btn-secondary mb-1" onclick="showResetPassword('{{ user.id }}', '{{ user.username }}')">
+                                                Reset Pass
+                                            </button>
+                                        {% endif %}
+                                        
+                                        <!-- Delete User Button -->
+                                        {% if user.id != current_user.id %}
+                                            <button class="btn btn-sm btn-danger mb-1" onclick="confirmDelete('{{ user.id }}', '{{ user.username }}')">
+                                                Delete
+                                            </button>
+                                        {% else %}
+                                            <span class="text-muted">(You)</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
@@ -174,21 +159,21 @@
                             <label for="username" class="form-label">Username</label>
                             <input type="text" class="form-control" id="username" name="username" required 
                                    placeholder="Enter username" minlength="3" maxlength="50">
-                            <small class="form-text text-muted">Must be unique, 3-50 characters</small>
+                            <small class="form-text text-muted">Must be unique, 3-50 characters. This is what they'll use to log in.</small>
                         </div>
                         
                         <div class="mb-3">
                             <label for="email" class="form-label">Email</label>
                             <input type="email" class="form-control" id="email" name="email" required 
                                    placeholder="Enter email address">
-                            <small class="form-text text-muted">Must be unique</small>
+                            <small class="form-text text-muted">For your reference only - no emails are sent automatically.</small>
                         </div>
                         
                         <div class="mb-3">
                             <label for="password" class="form-label">Password</label>
-                            <input type="password" class="form-control" id="password" name="password" required 
+                            <input type="text" class="form-control" id="password" name="password" required 
                                    placeholder="Enter password" minlength="6">
-                            <small class="form-text text-muted">Minimum 6 characters</small>
+                            <small class="form-text text-muted">Minimum 6 characters. You'll need to tell them this password yourself.</small>
                         </div>
                         
                         <div class="mb-3">
@@ -198,10 +183,63 @@
                                     Grant Admin Privileges
                                 </label>
                             </div>
+                            <small class="form-text text-muted">Admins can create/delete users and see all meetings.</small>
                         </div>
                         
                         <button type="submit" class="btn btn-success">Create User</button>
                     </form>
+                    
+                    <div class="alert alert-info mt-4">
+                        <strong>Note:</strong> After creating a user, you'll need to manually share their login details:
+                        <ul class="mb-0 mt-2">
+                            <li>Website: <strong>theformanalyst.com</strong></li>
+                            <li>Username: (what you entered above)</li>
+                            <li>Password: (what you entered above)</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- My Account Tab -->
+        <div class="tab-pane fade" id="myaccount" role="tabpanel">
+            <div class="card">
+                <div class="card-header">
+                    <h4>Change My Password</h4>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('admin_panel') }}">
+                        <input type="hidden" name="action" value="change_my_password">
+                        
+                        <div class="mb-3">
+                            <label for="current_password" class="form-label">Current Password</label>
+                            <input type="password" class="form-control" id="current_password" name="current_password" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="new_password" class="form-label">New Password</label>
+                            <input type="password" class="form-control" id="new_password" name="new_password" required minlength="6">
+                            <small class="form-text text-muted">Minimum 6 characters</small>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="confirm_password" class="form-label">Confirm New Password</label>
+                            <input type="password" class="form-control" id="confirm_password" name="confirm_password" required minlength="6">
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">Change Password</button>
+                    </form>
+                </div>
+            </div>
+            
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h4>My Account Info</h4>
+                </div>
+                <div class="card-body">
+                    <p><strong>Username:</strong> {{ current_user.username }}</p>
+                    <p><strong>Email:</strong> {{ current_user.email }}</p>
+                    <p><strong>Role:</strong> {% if current_user.is_admin %}Admin{% else %}User{% endif %}</p>
                 </div>
             </div>
         </div>
@@ -211,13 +249,19 @@
     <!-- Delete User Form -->
     <form id="deleteUserForm" method="POST" action="{{ url_for('admin_panel') }}" style="display: none;">
         <input type="hidden" name="action" value="delete_user">
-        <input type="hidden" name="username" id="deleteUsername">
+        <input type="hidden" name="user_id" id="deleteUserId">
     </form>
 
     <!-- Toggle Admin Form -->
     <form id="toggleAdminForm" method="POST" action="{{ url_for('admin_panel') }}" style="display: none;">
         <input type="hidden" name="action" value="toggle_admin">
-        <input type="hidden" name="username" id="toggleUsername">
+        <input type="hidden" name="user_id" id="toggleAdminUserId">
+    </form>
+
+    <!-- Toggle Active Form -->
+    <form id="toggleActiveForm" method="POST" action="{{ url_for('admin_panel') }}" style="display: none;">
+        <input type="hidden" name="action" value="toggle_active">
+        <input type="hidden" name="user_id" id="toggleActiveUserId">
     </form>
 
     <!-- Reset Password Modal -->
@@ -231,12 +275,12 @@
                 <form method="POST" action="{{ url_for('admin_panel') }}">
                     <div class="modal-body">
                         <input type="hidden" name="action" value="reset_password">
-                        <input type="hidden" name="username" id="resetUsername">
+                        <input type="hidden" name="user_id" id="resetUserId">
                         
                         <div class="mb-3">
-                            <label for="new_password" class="form-label">New Password for <span id="resetUsernameDisplay"></span></label>
-                            <input type="password" class="form-control" name="new_password" required minlength="6">
-                            <small class="form-text text-muted">Minimum 6 characters</small>
+                            <label for="new_password_reset" class="form-label">New Password for <strong><span id="resetUsernameDisplay"></span></strong></label>
+                            <input type="text" class="form-control" name="new_password" id="new_password_reset" required minlength="6">
+                            <small class="form-text text-muted">Minimum 6 characters. Remember to tell the user their new password!</small>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -254,40 +298,34 @@
 </div>
 
 <script>
-function confirmDelete(username) {
-    if (confirm(`Are you sure you want to delete user '${username}'? This will also delete all their meeting analyses. This action cannot be undone.`)) {
-        document.getElementById('deleteUsername').value = username;
+function confirmDelete(userId, username) {
+    if (confirm(`Are you sure you want to delete user '${username}'?\n\nThis will also delete ALL their meeting analyses.\n\nThis action cannot be undone!`)) {
+        document.getElementById('deleteUserId').value = userId;
         document.getElementById('deleteUserForm').submit();
     }
 }
 
-function toggleAdmin(username, isCurrentlyAdmin) {
+function toggleAdmin(userId, isCurrentlyAdmin) {
     const action = isCurrentlyAdmin ? 'remove admin privileges from' : 'grant admin privileges to';
-    if (confirm(`Are you sure you want to ${action} '${username}'?`)) {
-        document.getElementById('toggleUsername').value = username;
+    if (confirm(`Are you sure you want to ${action} this user?`)) {
+        document.getElementById('toggleAdminUserId').value = userId;
         document.getElementById('toggleAdminForm').submit();
     }
 }
 
-function showResetPassword(username) {
-    document.getElementById('resetUsername').value = username;
-    document.getElementById('resetUsernameDisplay').textContent = username;
-    new bootstrap.Modal(document.getElementById('resetPasswordModal')).show();
+function toggleActive(userId, isCurrentlyActive) {
+    const action = isCurrentlyActive ? 'deactivate' : 'activate';
+    if (confirm(`Are you sure you want to ${action} this user?`)) {
+        document.getElementById('toggleActiveUserId').value = userId;
+        document.getElementById('toggleActiveForm').submit();
+    }
 }
 
-// Initialize Bootstrap tabs if needed
-document.addEventListener('DOMContentLoaded', function() {
-    // Check if there are any flash messages and switch to appropriate tab
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            {% for category, message in messages %}
-                {% if 'created successfully' in message %}
-                    // Switch to users tab after creating user
-                    document.getElementById('users-tab').click();
-                {% endif %}
-            {% endfor %}
-        {% endif %}
-    {% endwith %}
-});
+function showResetPassword(userId, username) {
+    document.getElementById('resetUserId').value = userId;
+    document.getElementById('resetUsernameDisplay').textContent = username;
+    document.getElementById('new_password_reset').value = '';
+    new bootstrap.Modal(document.getElementById('resetPasswordModal')).show();
+}
 </script>
 {% endblock %}
