@@ -262,8 +262,8 @@ def logout():
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    # Get user's recent meetings
-    recent_meetings = Meeting.query.filter_by(user_id=current_user.id)\
+    # Get all recent meetings (shared across all users)
+    recent_meetings = Meeting.query\
         .order_by(Meeting.uploaded_at.desc())\
         .limit(5)\
         .all()
@@ -311,7 +311,8 @@ def analyze():
 @app.route("/history")
 @login_required
 def history():
-    meetings = Meeting.query.filter_by(user_id=current_user.id)\
+    # Get all meetings (shared across all users)
+    meetings = Meeting.query\
         .order_by(Meeting.uploaded_at.desc())\
         .all()
     return render_template("history.html", meetings=meetings)
@@ -323,11 +324,7 @@ def view_meeting(meeting_id):
     """View analysis results for a meeting"""
     meeting = Meeting.query.get_or_404(meeting_id)
     
-    # Check ownership
-    if meeting.user_id != current_user.id and not current_user.is_admin:
-        flash("You don't have access to this meeting", "danger")
-        return redirect(url_for("dashboard"))
-    
+    # All logged-in users can view all meetings
     results = get_meeting_results(meeting_id)
     return render_template("view_meeting.html", meeting=meeting, results=results)
 
