@@ -1764,22 +1764,6 @@ function calculateWeightScores(data) {
     
     return results;
 }
-    // Convert to results array
-    Object.keys(horseScores).forEach(horseName => {
-      results.push({
-        'race': raceNum,
-        'name': horseName,
-        'sectionalScore': horseScores[horseName].score,
-        'sectionalNote': horseScores[horseName].note,
-        'hasAverage1st': horseScores[horseName].hasAverage1st,
-        'hasLastStart1st': horseScores[horseName].hasLastStart1st
-      });
-    });
-  });
-  
-  return results;
-}
-
 
 function calculateTrueOdds(results, priorStrength = 0.05, troubleshooting, maxRatio = 300.0) {
     // Group horses by race
