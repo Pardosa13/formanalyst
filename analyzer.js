@@ -36,20 +36,20 @@ function convertCSV(data) {
     // Replace semicolons with commas
     data = data.replace(/;/g, ',');
 
-    // Remove extra whitespace around fields
+    // Remove extra whitespace around fields (line-level trim)
     data = data.replace(/^\s+|\s+$/gm, '');
 
-    // Handle inconsistent quoting
-    // Remove quotes if they are not needed
-    data = data.replace(/(^"|"$)/g, ''); // Remove quotes at the start/end of the line
+    // Handle simple inconsistent quoting
+    data = data.replace(/(^"|"$)/gm, ''); // Remove quotes at the start/end of lines
     data = data.replace(/"([^"]*)"/g, '$1'); // Remove quotes around fields
 
-    // Optionally, you can add more specific handling for quoted fields
-    // For example, if a field contains a comma, it should be quoted
-    data = data.replace(/([^,]+),([^,]+)/g, '"$1,$2"');
+    // NOTE: the following aggressive replacement may break fields that legitimately contain commas.
+    // It was in the original code but is generally unsafe. Leave commented unless you specifically need it.
+    // data = data.replace(/([^,]+),([^,]+)/g, '"$1,$2"');
 
     return data;
 }
+
 function calculateScore(horseRow, trackCondition, troubleshooting = false, averageFormPrice) {
     if (troubleshooting) console.log(`Calculating score for horse: ${horseRow['horse name']}`);
 
@@ -105,36 +105,36 @@ function calculateScore(horseRow, trackCondition, troubleshooting = false, avera
     
 
    // Check horse current and former classes
-var [a, b] = compareClasses(
-    horseRow['class restrictions'], 
-    horseRow['form class'],
-    horseRow['race prizemoney'],
-    horseRow['prizemoney']
-);
-score += a;
-notes += b;
+    var [cscore, cnote] = compareClasses(
+        horseRow['class restrictions'], 
+        horseRow['form class'],
+        horseRow['race prizemoney'],
+        horseRow['prizemoney']
+    );
+    score += cscore;
+    notes += cnote;
 
-// Check days since last run
-[a, b] = checkDaysSinceLastRun(horseRow['meeting date'], horseRow['form meeting date']);
-score += a;
-notes += b;
+    // Check days since last run
+    [a, b] = checkDaysSinceLastRun(horseRow['meeting date'], horseRow['form meeting date']);
+    score += a;
+    notes += b;
 
-// Check last run margin
-[a, b] = checkMargin(horseRow['form position'], horseRow['form margin']);
-score += a;
-notes += b;
+    // Check last run margin
+    [a, b] = checkMargin(horseRow['form position'], horseRow['form margin']);
+    score += a;
+    notes += b;
 
     // Check form price
-[a, b] = checkFormPrice(averageFormPrice);
-score += a;
-notes += b;
+    [a, b] = checkFormPrice(averageFormPrice);
+    score += a;
+    notes += b;
 
-// Check first up / second up specialist
-[a, b] = checkFirstUpSecondUp(horseRow);
-score += a;
-notes += b;
+    // Check first up / second up specialist
+    [a, b] = checkFirstUpSecondUp(horseRow);
+    score += a;
+    notes += b;
 
-return [score, notes]; // Return the score based on the first letter
+    return [score, notes]; // Return the score and notes
 }
 
 
@@ -145,7 +145,7 @@ function checkWeight(weight, claim) {
 }
 
 function checkLast10runs(last10) {
-    last10 = String(last10).trim();
+    last10 = String(last10 || '').trim();
     
     if (last10.length > 99) {
         throw new Error("String must be 99 characters or less.");
@@ -196,14 +196,15 @@ function checkLast10runs(last10) {
 }
 
 function normalizeJockeyName(jockeyName) {
-    // Function used by checkJockeys to substitute known variations with standard names
-    // I should probably merge this with normalizeClassName....
+    // guard against undefined/null
+    if (!jockeyName || typeof jockeyName !== 'string') return jockeyName || '';
+    const jr = jockeyName.trim();
     for (const [key, value] of Object.entries(jockeyMapping)) {
-        if (jockeyName.startsWith(key)) {
-            return jockeyName.replace(key, value);
+        if (jr.startsWith(key)) {
+            return jr.replace(key, value);
         }
     }
-    return jockeyName; // Return the original if no mapping is found
+    return jr; // Return the original if no mapping is found
 }
 function checkJockeys(JockeyName) {
     // Function for checking jockey name against lists
@@ -253,14 +254,14 @@ function checkJockeys(JockeyName) {
 }
 
 function normalizeTrainerName(trainerName) {
-    // Function used by checkJockeys to substitute known variations with standard names
-    // I should probably merge this with normalizeClassName....
+    if (!trainerName || typeof trainerName !== 'string') return trainerName || '';
+    const tr = trainerName.trim();
     for (const [key, value] of Object.entries(trainerMapping)) {
-        if (trainerName.startsWith(key)) {
-            return trainerName.replace(key, value);
+        if (tr.startsWith(key)) {
+            return tr.replace(key, value);
         }
     }
-    return trainerName; // Return the original if no mapping is found
+    return tr; // Return the original if no mapping is found
 }
 
 function checkTrainers(trainerName) {
@@ -297,8 +298,8 @@ function checkRacingForm(racingForm, runType) {
     var note = '';
     // Ensure each item is a string before processing
     if (typeof racingForm !== 'string') {
-        const err = typeof racingForm
-        note += 'Racing form ${runType} not string. Received type: ' + err;
+        const err = typeof racingForm;
+        note += `Racing form ${runType} not string. Received type: ` + err;
         return [addScore, note];
     }
     // Split the string by '-' and convert to numbers
@@ -746,7 +747,7 @@ function checkTrackForm(racingForm) {
         confidenceNote = ' [Good confidence: ' + runs + ' runs]';
     } else if (runs >= 2) {
         confidenceMultiplier = 0.7;
-        confidenceNote = ' [Medium confidence: ' + runs + ' runs]';
+        confidenceNote = ' [Medium confidence: ' + runs + ' run]';
     } else {
         confidenceMultiplier = 0.6;
         confidenceNote = ' [Low confidence: ' + runs + ' run]';
@@ -891,11 +892,11 @@ function checkTrackDistanceForm(racingForm) {
 
 
 function checkLastDistance(horseToCheck) {
-    const dist = horseToCheck['distance']
-    const prevDist = horseToCheck['form distance']
+    const dist = parseFloat(horseToCheck['distance']);
+    const prevDist = parseFloat(horseToCheck['form distance']);
     var addScore = 0;
     var note = '';
-    if (prevDist > 0) {
+    if (!isNaN(prevDist) && prevDist > 0) {
         if (dist > prevDist) {
             // if current distance longer than previous distance
             addScore += 1;
@@ -1285,7 +1286,7 @@ function checkFormPrice(formPrice) {
     // Round to 2 decimal places for lookup
     const roundedPrice = Math.round(numericPrice * 100) / 100;
     
-    // Try exact lookup first
+    // Try exact lookup first (object keys are coerced to strings)
     if (formPriceScores[roundedPrice] !== undefined) {
         addScore = formPriceScores[roundedPrice];
         if (addScore > 0) {
@@ -1301,7 +1302,7 @@ function checkFormPrice(formPrice) {
         const closestLower = sortedPrices.filter(p => p < roundedPrice).pop();
         const closestHigher = sortedPrices.filter(p => p > roundedPrice)[0];
         
-        if (closestLower && closestHigher) {
+        if (closestLower !== undefined && closestHigher !== undefined) {
             // Linear interpolation
             const lowerScore = formPriceScores[closestLower];
             const higherScore = formPriceScores[closestHigher];
@@ -1417,9 +1418,11 @@ function calculateAverageFormPrices(data) {
 }
 
 function parseLastInteger(sectional) {
+    if (!sectional || typeof sectional !== 'string') return null;
     const match = sectional.match(/(\d+)m$/);
     return match ? parseInt(match[1], 10) : null; // Return the integer or null if not found
 }
+
 function getLowestSectionalsByRace(data) {
   // Filter out invalid rows first
   const validData = data.filter(entry => {
@@ -1470,7 +1473,7 @@ function getLowestSectionalsByRace(data) {
     const distances = new Set();
 
     raceData.forEach(entry => {
-      const sectionalMatch = entry.sectional.match(/^(\d+\.?\d*)sec (\d+)m$/);
+      const sectionalMatch = entry.sectional.toString().match(/^(\d+\.?\d*)sec (\d+)m$/);
       if (sectionalMatch) {
         const time = parseFloat(sectionalMatch[1]);
         const distance = parseInt(sectionalMatch[2]);
@@ -1482,18 +1485,17 @@ function getLowestSectionalsByRace(data) {
         
         const newEntry = { ...entry };
 
-// Only attach time if detected AND non-undefined
-if (time !== undefined) {
-  newEntry.time = time;
-}
+        // Only attach time if detected AND non-undefined
+        if (time !== undefined && !isNaN(time)) {
+          newEntry.time = time;
+        }
 
-// Only attach distance if detected AND non-undefined
-if (distance !== undefined) {
-  newEntry.distance = distance;
-}
+        // Only attach distance if detected AND non-undefined
+        if (distance !== undefined && !isNaN(distance)) {
+          newEntry.distance = distance;
+        }
 
-parsedData.push(newEntry);
-
+        parsedData.push(newEntry);
       }
     });
 
@@ -1648,6 +1650,23 @@ parsedData.push(newEntry);
         horseScores[horseName].note = '??: No valid sectional\n';
       }
     });
+
+    // Push per-horse race results to overall results
+    allHorses.forEach(horseName => {
+      results.push({
+        race: raceNum,
+        name: horseName,
+        sectionalScore: horseScores[horseName].score,
+        sectionalNote: horseScores[horseName].note,
+        hasAverage1st: horseScores[horseName].hasAverage1st,
+        hasLastStart1st: horseScores[horseName].hasLastStart1st
+      });
+    });
+  });
+
+  return results;
+}
+
 // Calculate weight-based scores relative to race average
 function calculateWeightScores(data) {
     const results = [];
@@ -1796,8 +1815,8 @@ function calculateTrueOdds(results, priorStrength = 0.05, troubleshooting, maxRa
         // Calculate shift to ensure max ratio doesn't exceed maxRatio
         // If range is small, use a larger shift to prevent extreme ratios
        const minShiftForRatio = range > 0 ? range / (maxRatio - 1) : 1.0;
-const basicShift = minScore < 0 ? Math.abs(minScore) + 0.01 : 0;
-const shift = Math.max(basicShift, minShiftForRatio * 0.5);
+        const basicShift = minScore < 0 ? Math.abs(minScore) + 0.01 : 0;
+        const shift = Math.max(basicShift, minShiftForRatio * 0.5);
         
         // Apply Dirichlet method
         const adjustedScores = scores.map(s => s + shift);
@@ -2003,59 +2022,58 @@ function analyzeCSV(csvData, trackCondition, isAdvanced) {
         );
         
         if (matchingHorse) {
-    score += matchingHorse.sectionalScore;
-    notes += matchingHorse.sectionalNote;
+            score += matchingHorse.sectionalScore;
+            notes += matchingHorse.sectionalNote;
             
-    // Check for combo bonus
-    if (matchingHorse.hasAverage1st && matchingHorse.hasLastStart1st) {
-        const [classScore, classNotes] = compareClasses(
-            horse['class restrictions'], 
-            horse['form class'],
-            horse['race prizemoney'],
-            horse['prizemoney']
-        );
-        if (classScore > 0) {
-            score += 15;
-            notes += '+15.0 : COMBO BONUS - Fastest sectional + dropping in class\n';
+            // Check for combo bonus
+            if (matchingHorse.hasAverage1st && matchingHorse.hasLastStart1st) {
+                const [classScore, classNotes] = compareClasses(
+                    horse['class restrictions'], 
+                    horse['form class'],
+                    horse['race prizemoney'],
+                    horse['prizemoney']
+                );
+                if (classScore > 0) {
+                    score += 15;
+                    notes += '+15.0 : COMBO BONUS - Fastest sectional + dropping in class\n';
+                }
+            }
         }
-    }
+
+        // Add weight scores (outside matchingHorse block so ALL horses get weight scoring)
+        const matchingWeight = weightScores.find(w => 
+            parseInt(w.race) === parseInt(raceNumber) && 
+            w.name.toLowerCase().trim() === horseName.toLowerCase().trim()
+        );
+
+        if (matchingWeight) {
+            score += matchingWeight.weightScore;
+            notes += matchingWeight.weightNote;
+        }
+
+        analysisResults.push({ horse, score, notes });
+    });
+
+    // Remove duplicates and calculate odds
+    let uniqueResults = Array.from(
+        new Map(analysisResults.map(item => [item.horse['horse name'], item])).values()
+    );
+
+    uniqueResults = calculateTrueOdds(uniqueResults, 1, false);
+
+    // Sort by race number, then by score descending
+    uniqueResults.sort((a, b) => 
+        (parseInt(a.horse['race number']) - parseInt(b.horse['race number'])) || 
+        (b.score - a.score)
+    );
+
+    return uniqueResults; // <-- close analyzeCSV function
 }
-
-// Add weight scores (outside matchingHorse block so ALL horses get weight scoring)
-const matchingWeight = weightScores.find(w => 
-    parseInt(w.race) === parseInt(raceNumber) && 
-    w.name.toLowerCase().trim() === horseName.toLowerCase().trim()
-);
-
-if (matchingWeight) {
-    score += matchingWeight.weightScore;
-    notes += matchingWeight.weightNote;
-}
-
-analysisResults.push({ horse, score, notes }); // <-- close forEach iteration
-}); // <-- close the forEach function
-
-// Remove duplicates and calculate odds
-let uniqueResults = Array.from(
-    new Map(analysisResults.map(item => [item.horse['horse name'], item])).values()
-);
-
-uniqueResults = calculateTrueOdds(uniqueResults, 1, false);
-
-// Sort by race number, then by score descending
-uniqueResults.sort((a, b) => 
-    (parseInt(a.horse['race number']) - parseInt(b.horse['race number'])) || 
-    (b.score - a.score)
-);
-
-return uniqueResults; // <-- close analyzeCSV function
 
 
 // ============================================================
 // STDIN/STDOUT HANDLER - This is what Python calls
 // ============================================================
-
-
 
 let inputData = '';
 process.stdin.setEncoding('utf8');
