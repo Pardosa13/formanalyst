@@ -1810,7 +1810,20 @@ function parseCSVLine(line) {
     result.push(current);
     return result;
 }
-
+// Parse DD/MM/YYYY date strings properly
+function parseDate(dateStr) {
+    if (!dateStr) return new Date(0);
+    let datePart = dateStr.split(' ')[0];
+    const parts = datePart.split('/');
+    if (parts.length !== 3) return new Date(0);
+    const day = parseInt(parts[0]);
+    const month = parseInt(parts[1]) - 1;
+    let year = parseInt(parts[2]);
+    if (year < 100) {
+        year += (year <= 50) ? 2000 : 1900;
+    }
+    return new Date(year, month, day);
+}
 // Get unique horses (latest entry for each horse-race combo)
 function getUniqueHorsesOnly(data) {
     const latestByComposite = new Map();
@@ -1820,7 +1833,7 @@ function getUniqueHorsesOnly(data) {
         const currentDate = entry['form meeting date'];
         
         if (!latestByComposite.has(compositeKey) || 
-            currentDate > latestByComposite.get(compositeKey)['form meeting date']) {
+            parseDate(currentDate) > parseDate(latestByComposite.get(compositeKey)['form meeting date'])
             latestByComposite.set(compositeKey, entry);
         }
     });
