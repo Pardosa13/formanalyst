@@ -1763,3 +1763,171 @@ const shift = Math.max(basicShift, minShiftForRatio * 0.5);
     
     return results;
 }
+// ============================================================
+// NODE.JS ENTRY POINT - ADD THIS TO THE END OF analyzer.js
+// ============================================================
+
+// Simple CSV parser (since we can't use Papa Parse in Node without installing it)
+function parseCSV(csvString) {
+    const lines = csvString.trim().split('\n');
+    if (lines.length === 0) return [];
+    
+    // Parse header row
+    const headers = parseCSVLine(lines[0]);
+    
+    // Parse data rows
+    const data = [];
+    for (let i = 1; i < lines.length; i++) {
+        const values = parseCSVLine(lines[i]);
+        if (values.length === headers.length) {
+            const row = {};
+            headers.forEach((header, index) => {
+                row[header.trim().toLowerCase()] = values[index].trim();
+            });
+            data.push(row);
+        }
+    }
+    return data;
+}
+
+function parseCSVLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        
+        if (char === '"') {
+            inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+            result.push(current);
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    result.push(current);
+    return result;
+}
+
+// Get unique horses (latest entry for each horse-race combo)
+function getUniqueHorsesOnly(data) {
+    const latestByComposite = new Map();
+    
+    data.forEach(entry => {
+        const compositeKey = `${entry['horse name']}-${entry['race number']}`;
+        const currentDate = entry['form meeting date'];
+        
+        if (!latestByComposite.has(compositeKey) || 
+            currentDate > latestByComposite.get(compositeKey)['form meeting date']) {
+            latestByComposite.set(compositeKey, entry);
+        }
+    });
+    
+    return Array.from(latestByComposite.values());
+}
+
+// Main analysis function
+function analyzeCSV(csvData, trackCondition, isAdvanced) {
+    // Parse CSV
+    const data = parseCSV(csvData);
+    
+    if (data.length === 0) {
+        return [];
+    }
+    
+    const analysisResults = [];
+    
+    // Calculate multi-row analysis data
+    const filteredDataSectional = getLowestSectionalsByRace(data);
+    const averageFormPrices = calculateAverageFormPrices(data);
+    
+    // Get unique horses only
+    const uniqueHorses = getUniqueHorsesOnly(data);
+    
+    // Process each horse
+    uniqueHorses.forEach(horse => {
+        if (!horse['meeting date'] || !horse['horse name']) return;
+        
+        const compositeKey = `${horse['horse name']}-${horse['race number']}`;
+        const avgFormPrice = averageFormPrices[compositeKey];
+        
+        // Calculate base score
+        let [score, notes] = calculateScore(horse, trackCondition, false, avgFormPrice);
+        
+        const raceNumber = horse['race number'];
+        const horseName = horse['horse name'];
+        
+        // Add sectional scores
+        const matchingHorse = filteredDataSectional.find(h => 
+            parseInt(h.race) === parseInt(raceNumber) && 
+            h.name.toLowerCase().trim() === horseName.toLowerCase().trim()
+        );
+        
+        if (matchingHorse) {
+            score += matchingHorse.sectionalScore;
+            notes += matchingHorse.sectionalNote;
+            
+            // Check for combo bonus
+            if (matchingHorse.hasAverage1st && matchingHorse.hasLastStart1st) {
+                const [classScore, classNotes] = compareClasses(
+                    horse['class restrictions'], 
+                    horse['form class'],
+                    horse['race prizemoney'],
+                    horse['prizemoney']
+                );
+                if (classScore > 0) {
+                    score += 15;
+                    notes += '+15.0 : COMBO BONUS - Fastest sectional + dropping in class\n';
+                }
+            }
+        }
+        
+        analysisResults.push({ horse, score, notes });
+    });
+    
+    // Remove duplicates and calculate odds
+    let uniqueResults = Array.from(
+        new Map(analysisResults.map(item => [item.horse['horse name'], item])).values()
+    );
+    
+    uniqueResults = calculateTrueOdds(uniqueResults, 1, false);
+    
+    // Sort by race number, then by score descending
+    uniqueResults.sort((a, b) => 
+        (parseInt(a.horse['race number']) - parseInt(b.horse['race number'])) || 
+        (b.score - a.score)
+    );
+    
+    return uniqueResults;
+}
+
+// ============================================================
+// STDIN/STDOUT HANDLER - This is what Python calls
+// ============================================================
+let inputData = '';
+
+process.stdin.setEncoding('utf8');
+
+process.stdin.on('data', chunk => {
+    inputData += chunk;
+});
+
+process.stdin.on('end', () => {
+    try {
+        const input = JSON.parse(inputData);
+        const csvData = input.csv_data;
+        const trackCondition = input.track_condition || 'good';
+        const isAdvanced = input.is_advanced || false;
+        
+        const results = analyzeCSV(csvData, trackCondition, isAdvanced);
+        
+        // Output as JSON to stdout
+        console.log(JSON.stringify(results));
+        
+    } catch (error) {
+        console.error('Error processing input:', error.message);
+        process.exit(1);
+    }
+});
