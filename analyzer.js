@@ -2039,6 +2039,7 @@ if (matchingWeight) {
 }
         
 analysisResults.push({ horse, score, notes });
+ });
     
     // Remove duplicates and calculate odds
     let uniqueResults = Array.from(
