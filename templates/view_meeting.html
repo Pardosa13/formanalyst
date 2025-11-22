@@ -3,136 +3,199 @@
 {% block title %}{{ meeting.meeting_name }} - Analysis Results{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <!-- Meeting Header -->
-    <div class="card mb-4">
-        <div class="card-header bg-primary text-white">
-            <h2>{{ meeting.meeting_name }}</h2>
-        </div>
-        <div class="card-body">
-            <div class="row">
-                <div class="col-md-3">
-                    <strong>Uploaded:</strong> {{ meeting.uploaded_at.strftime('%Y-%m-%d %H:%M') }}
-                </div>
-                <div class="col-md-3">
-                    <strong>Track Condition:</strong> {{ meeting.track_condition }}
-                </div>
-                <div class="col-md-3">
-                    <strong>Total Races:</strong> {{ meeting.total_races }}
-                </div>
-                <div class="col-md-3">
-                    <strong>Confidence Level:</strong> 
-                    <span class="badge bg-{% if meeting.confidence_level == 'High' %}success{% elif meeting.confidence_level == 'Medium' %}warning{% else %}danger{% endif %}">
-                        {{ meeting.confidence_level }}
-                    </span>
-                </div>
-            </div>
-            <div class="row mt-2">
-                <div class="col-md-6">
-                    <strong>Analyzed Horses:</strong> {{ meeting.analyzed_horses }}
-                </div>
-                <div class="col-md-6">
-                    <strong>Advanced Mode:</strong> {{ "Yes" if meeting.advanced_mode else "No" }}
-                </div>
-            </div>
-        </div>
-    </div>
+<h1>{{ meeting.meeting_name }}</h1>
 
-    <!-- Navigation Buttons -->
-    <div class="mb-3">
-        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Back to Dashboard</a>
-        <a href="{{ url_for('history') }}" class="btn btn-info">View History</a>
-        <button onclick="window.print()" class="btn btn-primary">Print Report</button>
-    </div>
+<div style="margin-bottom: 20px;">
+    <a href="{{ url_for('history') }}" style="color: #667eea; text-decoration: none;">← Back to History</a>
+</div>
 
-    <!-- Races -->
-    {% for race in meeting.races %}
-    <div class="card mb-4">
-        <div class="card-header bg-secondary text-white">
-            <h4>Race {{ race.race_number }}: {{ race.race_name }}</h4>
-            <div class="row">
-                <div class="col-md-6">Distance: {{ race.distance }}</div>
-                <div class="col-md-6">Prize Money: {{ race.prize_money }}</div>
-            </div>
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+        <div>
+            <p style="margin: 0; color: #6c757d;">
+                <strong>Analyzed:</strong> {{ meeting.uploaded_at.strftime('%Y-%m-%d %H:%M') }}
+            </p>
+            <p style="margin: 5px 0 0 0; color: #6c757d;">
+                <strong>Total Races:</strong> {{ results.races|length }}
+            </p>
         </div>
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-striped table-hover">
-                    <thead>
-                        <tr>
-                            <th>No.</th>
-                            <th>Horse</th>
-                            <th>Barrier</th>
-                            <th>Weight</th>
-                            <th>Jockey</th>
-                            <th>Trainer</th>
-                            <th>Form</th>
-                            <th>Speed</th>
-                            <th>Class</th>
-                            <th>Win %</th>
-                            <th>Place %</th>
-                            <th>Recommendation</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for horse in race.horses %}
-                        <tr class="{% if loop.index <= 3 %}table-success{% endif %}">
-                            <td>{{ horse.number }}</td>
-                            <td><strong>{{ horse.name }}</strong></td>
-                            <td>{{ horse.barrier }}</td>
-                            <td>{{ horse.weight }}kg</td>
-                            <td>{{ horse.jockey }}</td>
-                            <td>{{ horse.trainer }}</td>
-                            <td>{{ horse.last_5_starts }}</td>
-                            <td>{{ horse.speed_rating }}</td>
-                            <td>{{ horse.class_rating }}</td>
-                            <td>
-                                <span class="badge bg-{% if horse.win_probability > 20 %}success{% elif horse.win_probability > 10 %}warning{% else %}secondary{% endif %}">
-                                    {{ horse.win_probability }}%
-                                </span>
-                            </td>
-                            <td>{{ horse.place_probability }}%</td>
-                            <td>
-                                <span class="badge bg-{% if horse.recommended_bet == 'Win' %}success{% elif horse.recommended_bet == 'Each Way' %}info{% elif horse.recommended_bet == 'Place' %}primary{% else %}secondary{% endif %}">
-                                    {{ horse.recommended_bet }}
-                                </span>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            
-            <!-- Top Picks Summary -->
-            <div class="alert alert-info mt-3">
-                <strong>Quick Picks for Race {{ race.race_number }}:</strong>
-                <ul class="mb-0">
-                    <li>Win: {{ race.horses[0].name }} ({{ race.horses[0].win_probability }}%)</li>
-                    <li>Place: {{ race.horses[0].name }}, {{ race.horses[1].name }}</li>
-                    <li>Each Way: {{ race.horses[1].name }} ({{ race.horses[1].win_probability }}%)</li>
-                </ul>
-            </div>
-        </div>
-    </div>
-    {% endfor %}
-
-    <!-- Summary Section -->
-    <div class="card">
-        <div class="card-header bg-success text-white">
-            <h4>Meeting Summary</h4>
-        </div>
-        <div class="card-body">
-            <p><strong>Analysis Complete:</strong> All {{ meeting.total_races }} races have been analyzed with {{ meeting.analyzed_horses }} horses processed.</p>
-            <p><strong>Overall Confidence:</strong> {{ meeting.confidence_level }}</p>
-            <p><strong>Track Conditions:</strong> {{ meeting.track_condition }} - adjustments have been made to calculations accordingly.</p>
+        <div>
+            <button onclick="window.print()" class="btn btn-primary">
+                📄 Print / Save PDF
+            </button>
         </div>
     </div>
 </div>
 
+<!-- Dashboard Summary -->
+<div class="card" style="background: linear-gradient(135deg, #2d2d2d 0%, #1a1a2e 100%); color: white; margin-bottom: 25px;">
+    <h3 style="margin: 0 0 15px 0;">Meeting Overview</h3>
+    <div style="display: flex; justify-content: space-around; flex-wrap: wrap; gap: 15px;">
+        {% set ns = namespace(highest_score=0, best_horse='', best_race=0, largest_gap=0, gap_race=0) %}
+        {% for race in results.races %}
+            {% if race.horses|length > 0 %}
+                {% if race.horses[0].score > ns.highest_score %}
+                    {% set ns.highest_score = race.horses[0].score %}
+                    {% set ns.best_horse = race.horses[0].horse_name %}
+                    {% set ns.best_race = race.race_number %}
+                {% endif %}
+                {% if race.horses|length > 1 %}
+                    {% set gap = race.horses[0].score - race.horses[1].score %}
+                    {% if gap > ns.largest_gap %}
+                        {% set ns.largest_gap = gap %}
+                        {% set ns.gap_race = race.race_number %}
+                    {% endif %}
+                {% endif %}
+            {% endif %}
+        {% endfor %}
+        
+        <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; min-width: 150px;">
+            <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Meeting High Score</div>
+            <div style="font-size: 24px; font-weight: bold;">{{ "%.1f"|format(ns.highest_score) }}</div>
+            <div style="font-size: 12px; opacity: 0.8;">{{ ns.best_horse }} (R{{ ns.best_race }})</div>
+        </div>
+        
+        <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; min-width: 150px;">
+            <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Largest Score Gap</div>
+            <div style="font-size: 24px; font-weight: bold;">{{ "%.1f"|format(ns.largest_gap) }}</div>
+            <div style="font-size: 12px; opacity: 0.8;">Race {{ ns.gap_race }}</div>
+        </div>
+        
+        <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; text-align: center; min-width: 150px;">
+            <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Total Races</div>
+            <div style="font-size: 24px; font-weight: bold;">{{ results.races|length }}</div>
+        </div>
+    </div>
+</div>
+
+<!-- Race Navigation -->
+<div class="card" style="margin-bottom: 20px;">
+    <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+        <span style="font-weight: 600; margin-right: 10px;">Jump to Race:</span>
+        {% for race in results.races %}
+        <a href="#race-{{ race.race_number }}" 
+           style="padding: 8px 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px; text-decoration: none; font-weight: 600;">
+            R{{ race.race_number }}
+        </a>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Display Results for Each Race -->
+{% for race in results.races %}
+<div class="card" id="race-{{ race.race_number }}" style="scroll-margin-top: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+        <h2 style="margin: 0;">Race {{ race.race_number }}</h2>
+        <div style="display: flex; gap: 15px; color: #6c757d; font-size: 14px;">
+            {% if race.distance %}
+            <span><strong>Distance:</strong> {{ race.distance }}</span>
+            {% endif %}
+            {% if race.race_class %}
+            <span><strong>Class:</strong> {{ race.race_class }}</span>
+            {% endif %}
+            {% if race.track_condition %}
+            <span><strong>Track:</strong> {{ race.track_condition|capitalize }}</span>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+            <thead>
+                <tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                    <th style="padding: 12px; text-align: center; width: 50px;">Pos</th>
+                    <th style="padding: 12px; text-align: left;">Horse</th>
+                    <th style="padding: 12px; text-align: center;">Score</th>
+                    <th style="padding: 12px; text-align: center;">Odds</th>
+                    <th style="padding: 12px; text-align: center;">Win %</th>
+                    <th style="padding: 12px; text-align: left;">Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for horse in race.horses %}
+                <tr {% if loop.index == 1 %}style="background-color: #d4edda;"
+                    {% elif loop.index == 2 %}style="background-color: #fff3cd;"
+                    {% elif loop.index == 3 %}style="background-color: #ffe4b3;"
+                    {% else %}style="background-color: {% if loop.index is odd %}#f8f9fa{% else %}#ffffff{% endif %};"
+                    {% endif %}>
+                    <td style="padding: 12px; text-align: center; font-weight: bold; border-bottom: 1px solid #e2e8f0;">
+                        {% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}{% endif %}
+                    </td>
+                    <td style="padding: 12px; border-bottom: 1px solid #e2e8f0;">
+                        <div style="font-weight: 600;">{{ horse.horse_name }}</div>
+                        <div style="font-size: 12px; color: #6c757d;">
+                            {% if horse.jockey %}J: {{ horse.jockey }}{% endif %}
+                            {% if horse.trainer %} | T: {{ horse.trainer }}{% endif %}
+                        </div>
+                    </td>
+                    <td style="padding: 12px; text-align: center; font-weight: bold; font-size: 18px; border-bottom: 1px solid #e2e8f0;">
+                        {{ "%.1f"|format(horse.score) }}
+                    </td>
+                    <td style="padding: 12px; text-align: center; font-weight: 600; border-bottom: 1px solid #e2e8f0; color: #28a745;">
+                        {{ horse.odds }}
+                    </td>
+                    <td style="padding: 12px; text-align: center; border-bottom: 1px solid #e2e8f0;">
+                        {{ horse.win_probability }}
+                    </td>
+                    <td style="padding: 12px; border-bottom: 1px solid #e2e8f0; font-size: 11px; max-width: 300px;">
+                        <details>
+                            <summary style="cursor: pointer; color: #667eea;">View Notes</summary>
+                            <pre style="white-space: pre-wrap; margin: 10px 0 0 0; font-family: monospace; font-size: 11px; background: #f5f5f5; padding: 10px; border-radius: 4px;">{{ horse.notes }}</pre>
+                        </details>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Quick Summary for this race -->
+    {% if race.horses|length >= 2 %}
+    <div style="margin-top: 15px; padding: 15px; background: #e8f4f8; border-radius: 8px; border-left: 4px solid #667eea;">
+        <strong>Quick Analysis:</strong>
+        <span style="margin-left: 10px;">
+            Top Pick: <strong>{{ race.horses[0].horse_name }}</strong> ({{ "%.1f"|format(race.horses[0].score) }} pts)
+            {% if race.horses|length > 1 %}
+            | Gap to 2nd: <strong>{{ "%.1f"|format(race.horses[0].score - race.horses[1].score) }} pts</strong>
+            {% endif %}
+        </span>
+    </div>
+    {% endif %}
+</div>
+{% endfor %}
+
+<!-- Back to Top -->
+<div style="text-align: center; margin: 30px 0;">
+    <a href="#" style="padding: 10px 20px; background: #2d2d2d; color: white; border-radius: 8px; text-decoration: none;">
+        ↑ Back to Top
+    </a>
+</div>
+
 <style>
     @media print {
-        .btn { display: none; }
-        .card { break-inside: avoid; }
+        nav, .btn, a[href*="history"], details summary {
+            display: none !important;
+        }
+        details[open] pre {
+            display: block !important;
+        }
+        body {
+            background: white;
+        }
+        .card {
+            break-inside: avoid;
+            page-break-inside: avoid;
+            box-shadow: none;
+            border: 1px solid #ddd;
+        }
+    }
+    
+    details summary::-webkit-details-marker {
+        display: none;
+    }
+    
+    details summary {
+        list-style: none;
     }
 </style>
 {% endblock %}
