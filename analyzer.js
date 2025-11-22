@@ -2044,28 +2044,37 @@ analysisResults.push({ horse, score, notes });
 // ============================================================
 // STDIN/STDOUT HANDLER - This is what Python calls
 // ============================================================
-let inputData = '';
 
+let inputData = '';
 process.stdin.setEncoding('utf8');
 
 process.stdin.on('data', chunk => {
-    inputData += chunk;
+  inputData += chunk;
 });
 
 process.stdin.on('end', () => {
-    try {
-        const input = JSON.parse(inputData);
-        const csvData = input.csv_data;
-        const trackCondition = input.track_condition || 'good';
-        const isAdvanced = input.is_advanced || false;
-        
-        const results = analyzeCSV(csvData, trackCondition, isAdvanced);
-        
-        // Output as JSON to stdout
-        console.log(JSON.stringify(results));
-        
-    } catch (error) {
-        console.error('Error processing input:', error.message);
-        process.exit(1);
-    }
+  if (!inputData.trim()) {
+    console.error('Error: No input data received.');
+    process.exit(1);
+  }
+
+  let input;
+  try {
+    input = JSON.parse(inputData);
+  } catch (err) {
+    console.error('Error: Invalid JSON input.', err.message);
+    process.exit(1);
+  }
+
+  const csvData = input.csv_data || '';
+  const trackCondition = input.track_condition || 'good';
+  const isAdvanced = input.is_advanced || false;
+
+  try {
+    const results = analyzeCSV(csvData, trackCondition, isAdvanced);
+    console.log(JSON.stringify(results));
+  } catch (error) {
+    console.error('Error processing input:', error.message);
+    process.exit(1);
+  }
 });
