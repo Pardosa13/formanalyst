@@ -2026,31 +2026,29 @@ const matchingWeight = weightScores.find(w =>
     parseInt(w.race) === parseInt(raceNumber) && 
     w.name.toLowerCase().trim() === horseName.toLowerCase().trim()
 );
+
 if (matchingWeight) {
     score += matchingWeight.weightScore;
     notes += matchingWeight.weightNote;
 }
-        
-analysisResults.push({ horse, score, notes });
- });
-    
-    // Remove duplicates and calculate odds
-    let uniqueResults = Array.from(
-        new Map(analysisResults.map(item => [item.horse['horse name'], item])).values()
-    );
-    
-    uniqueResults = calculateTrueOdds(uniqueResults, 1, false);
-    
-    // Sort by race number, then by score descending
-    uniqueResults.sort((a, b) => 
-        (parseInt(a.horse['race number']) - parseInt(b.horse['race number'])) || 
-        (b.score - a.score)
-    );
-    
-    return uniqueResults;
-}
-      
-}
+
+analysisResults.push({ horse, score, notes }); // <-- close forEach iteration
+}); // <-- close the forEach function
+
+// Remove duplicates and calculate odds
+let uniqueResults = Array.from(
+    new Map(analysisResults.map(item => [item.horse['horse name'], item])).values()
+);
+
+uniqueResults = calculateTrueOdds(uniqueResults, 1, false);
+
+// Sort by race number, then by score descending
+uniqueResults.sort((a, b) => 
+    (parseInt(a.horse['race number']) - parseInt(b.horse['race number'])) || 
+    (b.score - a.score)
+);
+
+return uniqueResults; // <-- close analyzeCSV function
 
 
 // ============================================================
