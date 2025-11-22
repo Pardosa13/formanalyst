@@ -1831,7 +1831,28 @@ function getUniqueHorsesOnly(data) {
 // Main analysis function
 function analyzeCSV(csvData, trackCondition, isAdvanced) {
     // Parse CSV
-    const data = parseCSV(csvData);
+    let data = parseCSV(csvData);
+    
+    if (data.length === 0) {
+        return [];
+    }
+    
+    // Filter out invalid rows (header rows repeated in data, empty rows, etc.)
+    data = data.filter(row => {
+        // Must have a horse name that's not the header
+        const horseName = (row['horse name'] || '').toString().trim().toLowerCase();
+        if (!horseName || horseName === 'horse name' || horseName === '') {
+            return false;
+        }
+        
+        // Must have a valid race number (numeric)
+        const raceNum = (row['race number'] || '').toString().trim();
+        if (!raceNum || isNaN(parseInt(raceNum)) || raceNum.toLowerCase() === 'race number') {
+            return false;
+        }
+        
+        return true;
+    });
     
     if (data.length === 0) {
         return [];
